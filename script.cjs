@@ -1,15 +1,13 @@
-import { ethers } from "ethers";
-import { FlashbotsBundleProvider } from "@flashbots/ethers-provider-bundle";
-import dotenv from "dotenv";
-
-dotenv.config();
+const { ethers } = require("ethers");
+const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle");
+require("dotenv").config();
 
 // === ENV CONFIG ===
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const RPC_URL = process.env.RPC_URL;
+console.log("RPC URL:", RPC_URL);
 
 // === CONTRACT CONFIG ===
-// const CONTRACT_ADDRESS = "0x47d7b6116c2303f4d0232c767f71e00db166b67a";
 const CONTRACT_ADDRESS = "0xef978E7fA8F3eF38828946f335AB60ba4955A0d5";
 
 const MINT_PRICE_ETH = "0.02"; // 0.02 ETH per NFT
@@ -43,13 +41,21 @@ async function main() {
   // Build mint transaction
   const mintTx = await contract.populateTransaction.mintSeaDrop(wallet.address, QUANTITY);
 
-  // Add transaction overrides (aggressive gas for speed)
-  mintTx.value = totalCost;
-  mintTx.gasLimit = ethers.BigNumber.from("300000"); // Adjust if needed
-  mintTx.maxPriorityFeePerGas = ethers.utils.parseUnits("5", "gwei");
-  mintTx.maxFeePerGas = ethers.utils.parseUnits("150", "gwei");
+  // Use legacy gas price instead of EIP-1559
+  const gasPrice = ethers.utils.parseUnits("150", "gwei"); // aggressive gas for speed
 
-  console.log("Prepared mint transaction:", mintTx);
+  // Final clean legacy transaction
+  const finalTx = {
+    to: CONTRACT_ADDRESS,
+    data: mintTx.data,
+    value: totalCost,
+    gasLimit: ethers.BigNumber.from("300000"), // Adjust if needed
+    gasPrice, // Legacy gas price for compatibility
+    nonce: await provider.getTransactionCount(wallet.address, "pending"),
+    chainId: (await provider.getNetwork()).chainId
+  };
+
+  console.log("Prepared mint transaction:", finalTx);
 
   // Countdown loop until mint start
   console.log("Waiting for mint start...");
@@ -63,7 +69,7 @@ async function main() {
   }
 
   // Sign transaction before sending
-  const signedTx = await wallet.signTransaction(mintTx);
+  const signedTx = await wallet.signTransaction(finalTx);
 
   // Target block to include the transaction
   const targetBlock = (await provider.getBlockNumber()) + 1;
